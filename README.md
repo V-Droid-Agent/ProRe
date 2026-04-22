@@ -1,78 +1,78 @@
-# ProRe
+# ProRe: A Proactive Reward System for GUI Agents via Reasoner-Actor Collaboration
 
-ProRe is a proactive reward system for GUI agents. Instead of judging a task only from the policy agent's static trajectory, ProRe lets a reasoner plan targeted probing tasks and then uses an evaluator agent to interact with the environment, collect extra evidence, and support a more reliable final reward decision.
+This repo provides the public release for ProRe, our proactive reward system for GUI agents. ProRe improves reward assignment by going beyond static trajectory judging: a general-purpose reasoner proposes targeted probing tasks, and a domain-specific evaluator agent interacts with the environment to collect additional evidence before the final reward decision.
 
-This repository is based on our ICLR 2026 paper:
+Unlike rule-based verification, ProRe does not require handwritten task-specific testing logic. Unlike trajectory-only LLM-as-a-Judge approaches, ProRe does not rely only on the original screenshots or logs produced by the policy agent. Instead, it actively probes the environment for missing evidence and then performs high-level judgment over both the original execution trace and the probed states.
 
-> ProRe: A Proactive Reward System for GUI Agents via Reasoner-Actor Collaboration
+ProRe is based on our ICLR 2026 paper:
+
+- Paper: `ProRe: A Proactive Reward System for GUI Agents via Reasoner-Actor Collaboration`
 
 ![ProRe key idea](Figure/png/key_idea.png)
 
-## Why ProRe?
+ProRe improves reward accuracy and F1 across several GUI-agent benchmarks, and also improves downstream policy-agent success rate when used for test-time scaling.
 
-Rewarding GUI agents is difficult because task completion is often not fully observable from the original execution trace alone.
+## Example
 
-- Rule-based rewards are accurate, but expensive to scale because they require handwritten verification logic for each task.
-- Trajectory-only LLM-as-a-Judge is scalable, but often misses crucial state evidence when screenshots or logs are incomplete.
-- GUI evaluation also requires domain-specific interaction skills that general-purpose LLMs do not always have.
+A simple example from the paper is the task:
 
-ProRe addresses this by moving from passive judgment to proactive probing.
+`Take two photos`
 
-## Core Idea
+If we only look at the original task trajectory, the final screenshots may not provide enough evidence to reliably determine whether two photos were actually captured. A static judge may only see that the camera app was opened and that at least one photo was taken.
 
-ProRe separates the reward process into two roles:
+With ProRe, the reasoner generates a probing task such as:
 
-- `Reasoner`: a general-purpose model that plans what evidence is needed and performs the final high-level judgment.
-- `Evaluator Agent`: a domain-specific GUI agent that actively probes the environment to gather the missing evidence.
+`Retrieve the newly taken photos`
 
-The workflow is:
+The evaluator agent then executes this probing task in the live environment and checks the gallery or related UI states for direct evidence. The final reward is assigned based on both:
 
-1. A policy agent executes the original task.
-2. The reasoner generates a probing task that would help verify success.
-3. The evaluator agent executes that probing task in the live environment.
-4. The reasoner judges success by comparing the original trajectory and the probed evidence.
+- what the policy agent did during the original task
+- what the evaluator agent observed during probing
 
-This makes the reward signal more verifiable, more accurate, and more useful for training or test-time scaling.
+This is the core idea behind ProRe: use additional targeted interaction to make reward decisions more grounded and more verifiable.
 
-## Framework
+## ProRe Workflow
+
+In ProRe, reward assignment follows a reasoner-actor collaboration workflow:
 
 ![ProRe framework](Figure/png/framework.png)
 
-At a high level, ProRe uses reasoner-actor collaboration:
-
-- The policy agent produces a trajectory for the original task.
-- The reasoner proposes probing tasks that expose the evidence needed for verification.
-- The evaluator agent executes those probing tasks and observes the resulting GUI states.
-- The reasoner performs the final reward decision over structured claims from both sides.
-
-## What Is In This Repo
-
-- `run_suite.py`: main entry point for running evaluation.
-- `main.sh`: example launch script.
-- `android_world/agents/vdroid.py`: implementation of the main task-execution agent.
-- `android_world/agents/evaluator.py`: implementation of the ProRe evaluator/probing agent.
-- `android_world/suite_utils.py`: suite runner and execute-then-judge pipeline.
-- `evaluation_task.py`: probing-task generation from the original task goal.
-- `Figure/`: figures from the paper.
-- `datasets/`: example data files.
-
-## Repository Flow
-
-In the public version of this codebase, the main agent and the probing agent are both initialized in `run_suite.py`.
-
-When `execute_then_judge=True`:
-
-1. The main agent first executes the task.
-2. A probing goal is generated from the original task.
-3. The probing agent is reconfigured for the current task.
-4. The probing agent collects additional GUI evidence.
+1. A policy agent executes the original GUI task.
+2. A reasoner generates a probing task that can reveal key evidence about task completion.
+3. An evaluator agent executes the probing task in the environment.
+4. The reasoner compares the original task trajectory and the evaluator's probed observations.
 5. ProRe returns the final reward judgment.
 
-This setup is meant to make the overall reward pipeline easy to follow for new readers.
+This design makes reward evaluation more verifiable, more robust to incomplete observations, and easier to scale than manual verification code.
+
+## Code Structure
+
+- `run_suite.py`
+  Main entry point for launching evaluation.
+- `main.sh`
+  Example script for running tasks.
+- `android_world/agents/vdroid.py`
+  Implementation of the main task-execution agent.
+- `android_world/agents/evaluator.py`
+  Implementation of the ProRe evaluator/probing agent.
+- `android_world/suite_utils.py`
+  Task loop and execute-then-judge pipeline.
+- `evaluation_task.py`
+  Probing-task generation from the original task goal.
+- `Figure/`
+  Figures from the paper.
+- `datasets/`
+  Example data files.
 
 ## Quick Start
 
-Run the example script:
+1. Setup the AndroidWorld environment.
+2. Launch the Android emulator with gRPC enabled.
+3. Install dependencies.
+4. Configure model-provider environment variables if needed.
+5. Run evaluation with ProRe enabled.
+
+Example:
 
 ```bash
 bash main.sh
@@ -88,67 +88,64 @@ python run_suite.py \
   --execute_then_judge=True
 ```
 
-## Main Components
+## Environment Setup
 
-### 1. Policy Agent
+We recommend using Python 3.11 or above.
 
-The policy agent is responsible for performing the original GUI task.
+Install dependencies:
 
-In this repository, `VDroid` is the primary execution agent exposed in the public configuration.
+```bash
+pip install -r requirements.txt
+```
 
-### 2. Probing Goal Generation
+Several model backends read credentials from environment variables. The code supports multiple providers depending on your setup.
 
-`evaluation_task.py` generates a short probing goal from the original task. The probing goal is not a repeat of the original task. Instead, it asks for the key evidence needed to verify whether the original task was completed.
+```bash
+# Gemini / GCP
+export GCP_API_KEY=
 
-### 3. Evaluator Agent
+# OpenAI-compatible APIs
+export OPENAI_ENDPOINT=
+export OPENAI_MODEL_NAME=
+export OPENAI_API_VERSION=
+export OPENAI_API_KEY=
 
-The evaluator agent lives in `android_world/agents/evaluator.py`. It executes probing tasks in the environment, gathers additional observations, and prepares evidence for the final judgment.
+# Azure OpenAI
+export AZURE_OPENAI_API_KEY=
+export AZURE_OPENAI_MODEL_NAME=
+export AZURE_OPENAI_API_VERSION=
+export AZURE_OPENAI_ENDPOINT=
+```
 
-### 4. Final Reward Decision
+These backends are mainly used for reasoning, probing-goal generation, and related evaluation components.
 
-The final reward is not based only on the original trace. It also considers what the evaluator agent discovered during probing. This is the core difference between ProRe and trajectory-only judging.
+## Public Release Notes
 
-## Results From The Paper
+In this public version:
 
-Across more than 3K trajectories from AndroidWorld, AndroidLab, and MobileAgentBench, the paper shows that ProRe:
+- both the main agent and the probing agent are initialized in `run_suite.py`
+- the probing agent is passed into the task runner and reconfigured per task
+- `execute_then_judge=True` enables the ProRe reward pipeline
 
-- improves reward accuracy by up to 5.3%
-- improves F1 by up to 19.4%
-- reaches 93.7% average reward accuracy
-- improves policy-agent success rate by up to 22.4% when used for test-time scaling
+This layout is intended to make the reward flow easier for new readers to follow.
 
-These gains come from collecting better verification evidence rather than only using a stronger static judge.
+## Results
 
-## Figures
+Instead of relying on a stronger static judge alone, ProRe improves reward quality through proactive evidence collection. The benchmark results and test-time scaling gains are illustrated below.
 
-The repository includes several figures from the paper in `Figure/`.
+![Benchmark results](Figure/png/combined_benchmarks.png)
 
-- `Figure/key_idea.pdf`: high-level intuition of ProRe
-- `Figure/framework.pdf`: framework overview
-- `Figure/combined_benchmarks.pdf`: benchmark results
-- `Figure/test_time_scaling_combined.pdf`: test-time scaling results
-
-For GitHub-friendly rendering, PNG copies of the main conceptual figures are stored in `Figure/png/`.
-
-## Environment Notes
-
-- This code assumes external Android emulator and model-serving infrastructure are already available.
-- Several model backends read credentials from environment variables such as `OPENAI_API_KEY`, `AZURE_OPENAI_API_KEY`, `GEMINI_KEY`, and related endpoint settings.
-- The public configuration currently exposes `ProRe` as the probing/evaluation agent.
+![Test-time scaling results](Figure/png/test_time_scaling_combined.png)
 
 ## Citation
 
-If you use this code or build on this project, please cite:
+If you use this repo, please cite our paper:
 
 ```bibtex
-@article{dai2025prore,
+@inproceedings{dai2026prore,
   title={ProRe: A Proactive Reward System for GUI Agents via Reasoner-Actor Collaboration},
-  author={Dai, Gaole and Jiang, Shiqi and Cao, Ting and Yang, Yuqing and Li, Yuanchun and Tan, Rui and Li, Mo and Qiu, Lili},
-  journal={arXiv preprint arXiv:2509.21823},
-  year={2025}
+  author={Dai, Gaole and Jiang, Shiqi and Li, Yuanchun and Cao, Ting and Li, Mo and Tan, Rui and Yang, Yuqing and Qiu, Lili},
+  booktitle={International Conference on Learning Representations},
+  year={2026}
 }
 ```
-
-## Acknowledgment
-
-This open-source release is adapted from our research codebase for clearer public reading and reuse.
